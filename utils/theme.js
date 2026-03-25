@@ -1,0 +1,48 @@
+export const COLORS = {
+  primary: '#3B82F6',
+  white: '#FFFFFF',
+  textMain: '#111827',
+  textMuted: '#6B7280',
+  textInverse: '#FFFFFF',
+  gray50: '#F9FAFB',
+  gray100: '#F3F4F6',
+  gray200: '#E5E7EB',
+  gray300: '#D1D5DB',
+  gray400: '#9CA3AF',
+  gray500: '#6B7280',
+  gray600: '#4B5563',
+  gray700: '#374151',
+  gray800: '#1F2937',
+  gray900: '#111827',
+  blue50: '#EFF6FF',
+  blue100: '#DBEAFE',
+  blue400: '#60A5FA',
+  blue500: '#3B82F6',
+  blue600: '#2563EB',
+  blue900: '#1E3A8A',
+  cyan400: '#22D3EE',
+  cyan500: '#06B6D4',
+  red50: '#FEF2F2',
+  red100: '#FEE2E2',
+  red400: '#F87171',
+  red500: '#EF4444',
+  green100: '#D1FAE5',
+  green500: '#10B981',
+  yellow500: '#F59E0B',
+  orange400: '#FB923C',
+  purple500: '#8B5CF6',
+  transparent: 'transparent',
+};
+
+export const STAFF_THEME = {
+  colors: {
+    primary: '#1E3A8A', 
+    secondary: '#38BDF8', 
+    accent: '#8B5CF6',
+    background: '#F3F4F6', 
+    surface: '#FFFFFF',
+    text: { main: '#111827', muted: '#6B7280', inverse: '#FFFFFF' },
+    status: { success: '#10B981', warning: '#F59E0B', error: '#EF4444', info: '#3B82F6' },
+    actions: { blue: '#3B82F6', orange: '#F97316', green: '#10B981', purple: '#8B5CF6' }
+  }
+};
