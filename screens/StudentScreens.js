@@ -11,7 +11,7 @@ import { db } from '../utils/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import * as DocumentPicker from 'expo-document-picker';
 
-const BASE_API_URL = "http://192.168.0.4:8000/api/";
+export const BASE_API_URL = "http://192.168.0.4:8000/api/";
 
 export const handleOpenMaterial = async (url, title, extension) => {
   if (!url) return;
@@ -56,6 +56,26 @@ export function QuickActionBtn({ icon: Icon, label, bgColors, onPress }) {
 
 export function HomeTab({ tasks, materials, tests, progressPercent, completedTasks, toggleTask, openModal, deleteTask, navigateToScreen, navigateToTab, currentUser }) {
   const upcomingTest = tests && tests.length > 0 ? tests[0] : null;
+  const [completedTests, setCompletedTests] = useState([]);
+
+  useEffect(() => {
+    const fetchCompletedTests = async () => {
+      if (!currentUser) return;
+      try {
+        const resp = await fetch(`${BASE_API_URL}submissions/?studentId=${currentUser.id}`);
+        const data = await resp.json();
+        setCompletedTests(data);
+      } catch (e) {}
+    };
+    fetchCompletedTests();
+    const interval = setInterval(fetchCompletedTests, 10000);
+    return () => clearInterval(interval);
+  }, [currentUser]);
+
+  const totalTests = tests ? tests.length : 0;
+  const uniqueCompletedTestIds = new Set(completedTests.map(sub => sub.test));
+  const completedAvailableTests = tests ? tests.filter(t => uniqueCompletedTestIds.has(t.id)).length : 0;
+  const testProgressPercent = totalTests > 0 ? Math.round((completedAvailableTests / totalTests) * 100) : 0;
 
   return (
     <ScrollView style={styles.tabContainer} contentContainerStyle={{ paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
@@ -85,11 +105,11 @@ export function HomeTab({ tasks, materials, tests, progressPercent, completedTas
           </View>
           <View style={styles.progressContainer}>
             <View style={styles.progressHeader}>
-              <Text style={styles.progressLabel}>Preparation</Text>
-              <Text style={styles.progressLabel}>{progressPercent}%</Text>
+              <Text style={styles.progressLabel}>Test Completion</Text>
+              <Text style={styles.progressLabel}>{testProgressPercent}%</Text>
             </View>
             <View style={styles.progressBarBg}>
-              <LinearGradient colors={[COLORS.cyan400, COLORS.blue500]} style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
+              <LinearGradient colors={[COLORS.cyan400, COLORS.blue500]} style={[styles.progressBarFill, { width: `${testProgressPercent}%` }]} />
             </View>
           </View>
         </View>
@@ -406,7 +426,7 @@ export function TestTab({ tests, materials = [], teachers, currentUser, navigate
                   </View>
                   <View style={{ marginLeft: 16, flex: 1 }}>
                     <Text style={[styles.taskCardTitle, isExpanded && { color: COLORS.blue700 }]}>{teacher.fullName}</Text>
-                    <Text style={styles.taskCardStatusText}>{teacher.email}</Text>
+                    <Text style={styles.taskCardStatusText}>{teacher.subjectName || teacher.department || 'Subject Not Specified'}</Text>
                   </View>
                 </View>
                 <ChevronRight color={isExpanded ? COLORS.blue600 : COLORS.gray400} size={20} style={{ transform: [{ rotate: isExpanded ? '90deg' : '0deg' }] }} />
@@ -450,7 +470,17 @@ export function TestTab({ tests, materials = [], teachers, currentUser, navigate
                       const completed = isTestCompleted(test.id);
                       const scoreText = getTestScore(test.id);
                       return (
-                        <TouchableOpacity key={test.id} style={[styles.inlineCardBox, completed && { borderColor: '#D1FAE5', borderWidth: 2 }]} onPress={() => startTest(test)}>
+                        <TouchableOpacity 
+                          key={test.id} 
+                          style={[styles.inlineCardBox, completed && { borderColor: '#D1FAE5', borderWidth: 2 }]} 
+                          onPress={() => {
+                            if (completed) {
+                              Alert.alert('Already Completed', 'You have already submitted this test. You cannot retake it.');
+                            } else {
+                              startTest(test);
+                            }
+                          }}
+                        >
                           <View style={styles.taskCardLeft}>
                             <View style={{ width: 36, height: 36, borderRadius: 8, backgroundColor: completed ? '#D1FAE5' : '#EFF6FF', alignItems: 'center', justifyContent: 'center' }}>
                               {completed ? <Check color="#059669" size={18} /> : <FileText color={COLORS.blue500} size={18} />}
@@ -625,7 +655,8 @@ export function AIChatTab({ currentUser, tests }) {
     <View style={{ flex: 1, backgroundColor: '#FFF' }}>
       <KeyboardAvoidingView 
         style={{ flex: 1 }} 
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
       {/* Dark header */}
       <LinearGradient colors={['#111827', '#1E293B']} style={{ paddingTop: 44, paddingBottom: 16, paddingHorizontal: 20 }}>
@@ -945,6 +976,28 @@ export function StudentUploadAssignmentScreen({ navigation, route, currentUser }
           iconColor: COLORS.blue500
         };
         
+        try {
+          const formData = new FormData();
+          formData.append('studentId', currentUser?.id || 'unknown');
+          formData.append('studentName', currentUser?.fullName || 'Student');
+          formData.append('teacherId', teacherId);
+          formData.append('title', pickedFile.name);
+          formData.append('size', newFile.size);
+          formData.append('file', {
+            uri: pickedFile.uri,
+            name: pickedFile.name,
+            type: pickedFile.mimeType || 'application/octet-stream'
+          });
+
+          await fetch(`${BASE_API_URL || 'http://0.0.0.0:8000/api/'}assignments/`, {
+            method: 'POST',
+            body: formData,
+            headers: { 'Content-Type': 'multipart/form-data' },
+          });
+        } catch (e) {
+          console.log('Assignment backend transmission failed:', e);
+        }
+
         saveFiles([newFile, ...uploads]);
         Alert.alert('Success', `Assignment sent seamlessly to ${teacherName}.`);
       }

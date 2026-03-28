@@ -1,8 +1,8 @@
 from rest_framework import viewsets, status
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.response import Response
-from .models import Material, Test, Question, TestSubmission
-from .serializers import MaterialSerializer, TestSerializer, TestCreateSerializer, TestSubmissionSerializer
+from .models import Material, Test, Question, TestSubmission, AssignmentSubmission
+from .serializers import MaterialSerializer, TestSerializer, TestCreateSerializer, TestSubmissionSerializer, AssignmentSubmissionSerializer
 
 class MaterialViewSet(viewsets.ModelViewSet):
     queryset = Material.objects.all()
@@ -62,3 +62,23 @@ class TestSubmissionViewSet(viewsets.ModelViewSet):
         if department:
             queryset = queryset.filter(department=department)
         return queryset.order_by('-submitted_at')
+
+class AssignmentSubmissionViewSet(viewsets.ModelViewSet):
+    queryset = AssignmentSubmission.objects.all()
+    serializer_class = AssignmentSubmissionSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def get_queryset(self):
+        queryset = self.queryset
+        teacher_id = self.request.query_params.get('teacherId')
+        student_id = self.request.query_params.get('studentId')
+        if teacher_id:
+            queryset = queryset.filter(teacherId=teacher_id)
+        if student_id:
+            queryset = queryset.filter(studentId=student_id)
+        return queryset.order_by('-submitted_at')
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context

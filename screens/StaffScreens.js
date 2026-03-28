@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Modal } from 'react-native';
 import { ChevronLeft, Users, FileText, Clock, UploadCloud, Edit2, BarChart2, User, BookOpen, Trash2, Plus, Search, Check, X } from 'lucide-react-native';
 import { STAFF_THEME as THEME } from '../utils/theme';
-import { handleOpenMaterial } from './StudentScreens';
+import { handleOpenMaterial, BASE_API_URL } from './StudentScreens';
 import { db } from '../utils/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 
@@ -58,7 +58,7 @@ export function StaffPrimaryButton({ title, onPress, color = THEME.colors.primar
   );
 }
 
-export function StaffHomeScreen({ profile, students, materials, tests, submissions = [], navigate }) {
+export function StaffHomeScreen({ profile, students, materials, tests, submissions = [], navigate, deleteTest }) {
   const stats = [
     { label: 'Total Students', value: students.length, icon: Users, color: THEME.colors.actions.blue },
     { label: 'Materials', value: materials.length, icon: FileText, color: THEME.colors.actions.orange },
@@ -130,11 +130,14 @@ export function StaffHomeScreen({ profile, students, materials, tests, submissio
               <View style={[styles.testStatusBtn, test.status === 'Completed' ? styles.statusBtnCompleted : styles.statusBtnActive]}>
                 <Text style={[styles.testStatusText, test.status === 'Completed' ? styles.statusTextCompleted : styles.statusTextActive]}>{test.status}</Text>
               </View>
+              <TouchableOpacity onPress={() => deleteTest && deleteTest(test.id)} style={{ marginLeft: 12, padding: 8 }}>
+                <Trash2 color={THEME.colors.status.error} size={18} />
+              </TouchableOpacity>
             </View>
           </StaffCard>
         ))
       )}
-      <View style={{ height: 40 }} />
+      <View style={{ height: 120 }} />
     </ScrollView>
   );
 }
@@ -224,15 +227,59 @@ export function UploadMaterialScreen({ addMaterial, goBack }) {
   );
 }
 
-export function StudentsScreen({ students, deleteStudent }) {
+export function StudentsScreen({ students, submissions = [], deleteStudent }) {
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedAssignments, setSelectedAssignments] = useState([]);
+  const [studentName, setStudentName] = useState('');
 
-  const filtered = students.filter(s => {
+  const handleViewAssignments = async (student) => {
+    try {
+      const resp = await fetch(`${BASE_API_URL}assignments/?studentId=${student.id || student.uid}`);
+      const data = await resp.json();
+      
+      if (data && data.length > 0) {
+        setStudentName(student.name);
+        setSelectedAssignments(data);
+        setModalVisible(true);
+      } else {
+        alert(`No assignments currently uploaded to server by ${student.name}.`);
+      }
+    } catch (e) {
+      alert(`Network error fetching assignments for ${student.name}.`);
+    }
+  };
+
+  const studentStats = {};
+  submissions.forEach(sub => {
+    const sId = sub.studentId || sub.studentName;
+    if (!studentStats[sId]) {
+      studentStats[sId] = { totalScore: 0, totalQuestions: 0, submissionCount: 0 };
+    }
+    studentStats[sId].totalScore += sub.score;
+    studentStats[sId].totalQuestions += sub.total;
+    studentStats[sId].submissionCount += 1;
+  });
+
+  const studentsWithRealStats = students.map(s => {
+    const stats = studentStats[s.id] || studentStats[s.name] || { totalScore: 0, totalQuestions: 0, submissionCount: 0 };
+    const realScore = stats.totalQuestions > 0 ? Math.round((stats.totalScore / stats.totalQuestions) * 100) : 0;
+    return { ...s, score: realScore, submissionCount: stats.submissionCount };
+  });
+
+  let filtered = studentsWithRealStats.filter(s => {
     const matchSearch = s.name.toLowerCase().includes(search.toLowerCase());
-    const matchFilter = filter === 'All' ? true : filter === 'Top' ? s.score >= 90 : s.score < 70;
+    const matchFilter = filter === 'All' ? true : filter === 'Top' ? s.score >= 50 : true;
     return matchSearch && matchFilter;
   });
+
+  if (filter === 'Top') {
+    filtered.sort((a,b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return b.submissionCount - a.submissionCount;
+    });
+  }
 
   return (
     <View style={styles.screenContainer}>
@@ -244,7 +291,7 @@ export function StudentsScreen({ students, deleteStudent }) {
           <TextInput style={styles.searchInput} placeholder="Search students..." value={search} onChangeText={setSearch} placeholderTextColor={THEME.colors.text.muted} />
         </View>
         <View style={styles.filterRow}>
-          {['All', 'Top', 'Needs Help'].map(f => (
+          {['All', 'Top', 'Assignments'].map(f => (
             <TouchableOpacity key={f} onPress={() => setFilter(f)} style={[styles.filterBtn, filter === f && styles.filterBtnActive]}>
               <Text style={[styles.filterBtnText, filter === f && styles.filterBtnTextActive]}>{f}</Text>
             </TouchableOpacity>
@@ -263,15 +310,51 @@ export function StudentsScreen({ students, deleteStudent }) {
                 <View style={styles.studentAvatarWrap}><Text style={styles.studentAvatarText}>{student.avatar}</Text></View>
                 <View style={styles.studentInfo}>
                   <Text style={styles.studentName}>{student.name}</Text>
-                  <Text style={styles.studentScore}>{student.registerNumber ? `Reg: ${student.registerNumber}` : ''}{student.email ? ` • ${student.email}` : ''}</Text>
+                  <Text style={styles.studentScore}>{student.registerNumber ? `Reg: ${student.registerNumber}` : ''}</Text>
                   {student.department ? <Text style={[styles.studentScore, { color: '#3B82F6', fontWeight: '600' }]}>{student.department}</Text> : null}
                 </View>
+                {filter === 'Assignments' && (
+                  <TouchableOpacity onPress={() => handleViewAssignments(student)} style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: THEME.colors.actions.blue, borderRadius: 8, justifyContent: 'center' }}>
+                    <Text style={{ color: '#FFF', fontSize: 12, fontWeight: '700' }}>Assignments</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </StaffCard>
           ))
         )}
-        <View style={{ height: 40 }} />
+        <View style={{ height: 120 }} />
       </ScrollView>
+
+      <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)} hardwareAccelerated>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: '#FFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, minHeight: '50%', maxHeight: '80%', padding: 24, paddingBottom: 40 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <Text style={{ fontSize: 20, fontWeight: '700', color: '#111827' }}>{studentName}'s Assignments</Text>
+              <TouchableOpacity onPress={() => setModalVisible(false)} style={{ padding: 6, backgroundColor: '#F3F4F6', borderRadius: 20 }}>
+                <X color="#4B5563" size={24} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {selectedAssignments.map(a => (
+                <TouchableOpacity 
+                  key={a.id} 
+                  style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8FAFC', padding: 16, borderRadius: 16, marginBottom: 12, borderWidth: 1, borderColor: '#E2E8F0' }}
+                  onPress={() => handleOpenMaterial(a.file_download_url || a.fileUrl, a.title, a.title?.split('.').pop() || 'tmp')}
+                >
+                  <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: THEME.colors.primary, alignItems: 'center', justifyContent: 'center', marginRight: 16 }}>
+                    <FileText color="#FFF" size={22} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 16, fontWeight: '600', color: '#1E293B', marginBottom: 4 }} numberOfLines={1}>{a.title}</Text>
+                    <Text style={{ fontSize: 13, color: '#64748B' }}>{a.size} • {new Date(a.submitted_at).toLocaleDateString()}</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 }
@@ -405,7 +488,7 @@ export function MaterialsScreen({ materials, deleteMaterial, navigate }) {
             </StaffCard>
           ))
         )}
-        <View style={{ height: 40 }} />
+        <View style={{ height: 120 }} />
       </ScrollView>
     </View>
   );
@@ -413,6 +496,21 @@ export function MaterialsScreen({ materials, deleteMaterial, navigate }) {
 
 export function PerformanceScreen({ students, submissions = [], goBack }) {
   const avgScore = submissions.length > 0 ? Math.round(submissions.reduce((acc, s) => acc + (s.score / s.total * 100), 0) / submissions.length) : 0;
+  
+  const studentStats = {};
+  submissions.forEach(sub => {
+    const sId = sub.studentId || sub.studentName || Math.random().toString();
+    if (!studentStats[sId]) {
+      studentStats[sId] = { id: sId, name: sub.studentName || 'Unknown Student', totalScore: 0, totalQuestions: 0, avatar: sub.studentName ? sub.studentName.charAt(0).toUpperCase() : 'S' };
+    }
+    studentStats[sId].totalScore += sub.score;
+    studentStats[sId].totalQuestions += sub.total;
+  });
+
+  const rankedStudents = Object.values(studentStats).map(s => ({
+    ...s,
+    score: s.totalQuestions > 0 ? Math.round((s.totalScore / s.totalQuestions) * 100) : 0
+  })).sort((a,b) => b.score - a.score);
   return (
     <View style={styles.screenContainer}>
       <StaffScreenHeader title="Class Performance" showBack goBack={goBack} />
@@ -446,14 +544,18 @@ export function PerformanceScreen({ students, submissions = [], goBack }) {
 
         <Text style={[styles.sectionTitleBlackBase, { marginTop: 24, marginBottom: 16 }]}>Student Rankings</Text>
         <View>
-          {[...students].sort((a,b) => b.score - a.score).map((s, i) => (
-            <View key={s.id} style={styles.rankRow}>
-              <Text style={styles.rankIndex}>{i + 1}</Text>
-              <View style={styles.rankAvatarWrap}><Text style={styles.rankAvatarText}>{s.avatar}</Text></View>
-              <Text style={styles.rankName} numberOfLines={1}>{s.name}</Text>
-              <Text style={styles.rankScore}>{s.score}%</Text>
-            </View>
-          ))}
+          {rankedStudents.length === 0 ? (
+            <Text style={{ marginHorizontal: 16, color: '#6B7280', fontStyle: 'italic' }}>No students have completed test submissions yet.</Text>
+          ) : (
+            rankedStudents.map((s, i) => (
+              <View key={s.id} style={styles.rankRow}>
+                <Text style={styles.rankIndex}>{i + 1}</Text>
+                <View style={styles.rankAvatarWrap}><Text style={styles.rankAvatarText}>{s.avatar}</Text></View>
+                <Text style={styles.rankName} numberOfLines={1}>{s.name}</Text>
+                <Text style={styles.rankScore}>{s.score}%</Text>
+              </View>
+            ))
+          )}
         </View>
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -467,6 +569,7 @@ export function StaffProfileScreen({ profile, onLogout, currentUser, updateCurre
   const [formData, setFormData] = useState({
     fullName: currentUser?.fullName || profile.name || '',
     department: currentUser?.department || profile.subject || '',
+    subjectName: currentUser?.subjectName || '',
     collegeName: currentUser?.collegeName || '',
     collegeCode: currentUser?.collegeCode || ''
   });
@@ -500,7 +603,7 @@ export function StaffProfileScreen({ profile, onLogout, currentUser, updateCurre
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
              <Text style={[styles.sectionTitleBlack, { marginBottom: 0 }]}>Academic Info</Text>
              <TouchableOpacity style={{ padding: 8, backgroundColor: isEditing ? '#fee2e2' : '#EFF6FF', borderRadius: 8 }} onPress={() => setIsEditing(!isEditing)}>
-               {isEditing ? <X color="#dc2626" size={18} /> : <Edit2 color={THEME.colors.primary.base} size={18} />}
+               {isEditing ? <X color="#dc2626" size={18} /> : <Edit2 color={THEME.colors.primary} size={18} />}
              </TouchableOpacity>
           </View>
 
@@ -519,6 +622,15 @@ export function StaffProfileScreen({ profile, onLogout, currentUser, updateCurre
               <TextInput style={styles.editInput} value={formData.department} onChangeText={(t) => setFormData(prev => ({...prev, department: t}))} />
             ) : (
               <Text style={{ fontSize: 16, color: '#111827', fontWeight: '600' }}>{currentUser?.department || profile.subject || 'Not specified'}</Text>
+            )}
+          </View>
+
+          <View style={{ marginBottom: 12 }}>
+            <Text style={{ fontSize: 12, color: '#6B7280', fontWeight: '600', textTransform: 'uppercase', marginBottom: 4 }}>Subject Name</Text>
+            {isEditing ? (
+              <TextInput style={styles.editInput} value={formData.subjectName} onChangeText={(t) => setFormData(prev => ({...prev, subjectName: t}))} />
+            ) : (
+              <Text style={{ fontSize: 16, color: '#111827', fontWeight: '600' }}>{currentUser?.subjectName || 'Not specified'}</Text>
             )}
           </View>
 
@@ -546,7 +658,7 @@ export function StaffProfileScreen({ profile, onLogout, currentUser, updateCurre
           </View>
 
           {isEditing && (
-             <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: THEME.colors.primary.base, marginTop: 16, padding: 14 }, saving && { opacity: 0.7 }]} onPress={handleSave} disabled={saving}>
+             <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: THEME.colors.primary, marginTop: 16, padding: 14 }, saving && { opacity: 0.7 }]} onPress={handleSave} disabled={saving}>
                <Text style={styles.primaryBtnText}>{saving ? 'Saving...' : 'Save Changes'}</Text>
              </TouchableOpacity>
           )}

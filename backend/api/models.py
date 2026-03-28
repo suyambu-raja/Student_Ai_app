@@ -55,3 +55,15 @@ class TestSubmission(models.Model):
 
     def __str__(self):
         return f"{self.studentName} - {self.test.title} ({self.score}/{self.total})"
+
+class AssignmentSubmission(models.Model):
+    studentId = models.CharField(max_length=255)
+    studentName = models.CharField(max_length=255)
+    teacherId = models.CharField(max_length=255)
+    title = models.CharField(max_length=255)
+    size = models.CharField(max_length=50, default='0 MB')
+    file = models.FileField(upload_to='assignments/')
+    submitted_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.studentName} - {self.title}"

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Material, Test, Question, TestSubmission
+from .models import Material, Test, Question, TestSubmission, AssignmentSubmission
 
 class MaterialSerializer(serializers.ModelSerializer):
     file_download_url = serializers.SerializerMethodField()
@@ -52,3 +52,16 @@ class TestSubmissionSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestSubmission
         fields = '__all__'
+
+class AssignmentSubmissionSerializer(serializers.ModelSerializer):
+    file_download_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AssignmentSubmission
+        fields = '__all__'
+
+    def get_file_download_url(self, obj):
+        request = self.context.get('request')
+        if obj.file and request:
+            return request.build_absolute_uri(obj.file.url)
+        return ''

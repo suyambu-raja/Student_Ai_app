@@ -265,10 +265,10 @@ function StaffTabs({ handleLogout, data, commands, refreshData, currentUser, upd
       }}
     >
       <Tab.Screen name="StaffHome" options={{ tabBarLabel: 'Home', tabBarIcon: ({ color }) => <Home color={color} size={24} /> }}>
-        {(props) => <StaffHomeScreen profile={data.profile} students={data.students} materials={data.materials} tests={data.tests} submissions={data.submissions || []} navigate={props.navigation.navigate} />}
+        {(props) => <StaffHomeScreen profile={data.profile} students={data.students} materials={data.materials} tests={data.tests} submissions={data.submissions || []} navigate={props.navigation.navigate} deleteTest={commands.deleteTest} />}
       </Tab.Screen>
       <Tab.Screen name="StudentsTab" options={{ tabBarLabel: 'Students', tabBarIcon: ({ color }) => <Users color={color} size={24} /> }}>
-        {(props) => <StudentsScreen students={data.students} deleteStudent={commands.deleteStudent} />}
+        {(props) => <StudentsScreen students={data.students} submissions={data.submissions || []} deleteStudent={commands.deleteStudent} />}
       </Tab.Screen>
       <Tab.Screen name="MaterialsTab" options={{ tabBarLabel: 'Materials', tabBarIcon: ({ color }) => <BookOpen color={color} size={24} /> }}>
         {(props) => <MaterialsScreen materials={data.materials} deleteMaterial={commands.deleteMaterial} navigate={props.navigation.navigate} />}
@@ -442,6 +442,14 @@ function StaffApp({ handleLogout, currentUser, updateCurrentUser }) {
         console.log('Test create network error:', e.message);
       }
       fetchData();
+    },
+    deleteTest: async (id) => {
+      try {
+        await fetch(`${BASE_API_URL}tests/${id}/`, { method: 'DELETE' });
+        fetchData();
+      } catch (e) {
+        console.log('Delete test error:', e.message);
+      }
     },
     deleteStudent: (id) => {} 
   };
