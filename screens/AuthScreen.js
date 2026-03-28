@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, KeyboardAvoidingView, Platform, SafeAreaView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BrainCircuit, User, Hash, Mail, Calendar, Briefcase, School, Lock, Eye, EyeOff } from 'lucide-react-native';
 import { COLORS } from '../utils/theme';
@@ -73,7 +74,7 @@ export default function AuthScreen({ onLogin }) {
       if (!formData.collegeCode.trim()) newErrors.collegeCode = "College Code is required";
       if (!formData.email.trim()) newErrors.email = "Email is required";
       else if (!/\S+@\S+\.\S+/.test(formData.email)) newErrors.email = "Invalid email format";
-      if (role === 'Staff' && !formData.department.trim()) newErrors.department = "Department is required";
+      if (!formData.department.trim()) newErrors.department = "Department is required";
       if (!formData.password) newErrors.password = "Password is required";
       else if (formData.password.length < 6) newErrors.password = "Minimum 6 characters required";
       if (formData.password !== formData.confirmPassword) newErrors.confirmPassword = "Passwords do not match";
@@ -135,14 +136,12 @@ export default function AuthScreen({ onLogin }) {
               <AuthInput icon={Hash} placeholder="Register Number" value={formData.registerNumber} onChangeText={(v) => handleChange('registerNumber', v)} error={errors.registerNumber} />
             )}
 
-            {(role === 'Staff' || mode === 'signup') && (
-              <AuthInput icon={Mail} placeholder="Email Address" value={formData.email} onChangeText={(v) => handleChange('email', v)} error={errors.email} />
-            )}
+            <AuthInput icon={Mail} placeholder="Email Address" value={formData.email} onChangeText={(v) => handleChange('email', v)} error={errors.email} />
 
             {mode === 'signup' && (
               <>
                 {role === 'Student' && <AuthInput icon={Calendar} placeholder="Date of Birth" value={formData.dob} onChangeText={(v) => handleChange('dob', v)} error={errors.dob} />}
-                {role === 'Staff' && <AuthInput icon={Briefcase} placeholder="Department" value={formData.department} onChangeText={(v) => handleChange('department', v)} error={errors.department} />}
+                <AuthInput icon={Briefcase} placeholder="Department (e.g., CSE, ECE, ME)" value={formData.department} onChangeText={(v) => handleChange('department', v)} error={errors.department} />
                 <AuthInput icon={School} placeholder="College Name" value={formData.collegeName} onChangeText={(v) => handleChange('collegeName', v)} error={errors.collegeName} />
                 <AuthInput icon={Hash} placeholder="College Code" value={formData.collegeCode} onChangeText={(v) => handleChange('collegeCode', v)} error={errors.collegeCode} />
               </>

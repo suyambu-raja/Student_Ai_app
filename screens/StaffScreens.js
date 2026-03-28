@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
-import { ChevronLeft, Users, FileText, Clock, UploadCloud, Edit2, BarChart2, User, BookOpen, Trash2, Plus, Search } from 'lucide-react-native';
+import { ChevronLeft, Users, FileText, Clock, UploadCloud, Edit2, BarChart2, User, BookOpen, Trash2, Plus, Search, Check, X } from 'lucide-react-native';
 import { STAFF_THEME as THEME } from '../utils/theme';
+import { handleOpenMaterial } from './StudentScreens';
+import { db } from '../utils/firebase';
+import { doc, updateDoc } from 'firebase/firestore';
 
 export function StaffCard({ children, style }) {
   return <View style={[styles.card, style]}>{children}</View>;
@@ -55,11 +58,11 @@ export function StaffPrimaryButton({ title, onPress, color = THEME.colors.primar
   );
 }
 
-export function StaffHomeScreen({ profile, students, materials, tests, navigate }) {
+export function StaffHomeScreen({ profile, students, materials, tests, submissions = [], navigate }) {
   const stats = [
     { label: 'Total Students', value: students.length, icon: Users, color: THEME.colors.actions.blue },
     { label: 'Materials', value: materials.length, icon: FileText, color: THEME.colors.actions.orange },
-    { label: 'Tests Active', value: tests.length, icon: Clock, color: THEME.colors.actions.green },
+    { label: 'Submissions', value: submissions?.length || 0, icon: Check, color: THEME.colors.actions.green },
   ];
 
   return (
@@ -136,25 +139,85 @@ export function StaffHomeScreen({ profile, students, materials, tests, navigate 
   );
 }
 
+import * as DocumentPicker from 'expo-document-picker';
+import { Paperclip } from 'lucide-react-native';
+
 export function UploadMaterialScreen({ addMaterial, goBack }) {
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
-  
-  const handleUpload = () => { if (title) { addMaterial({ title, desc: desc || 'Document', type: 'PDF', size: '1.2 MB' }); goBack(); } };
+  const [file, setFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+
+  const pickDocument = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['*/*'],
+        copyToCacheDirectory: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const pickedFile = result.assets[0];
+        setFile(pickedFile);
+        if (!title) setTitle(pickedFile.name.split('.')[0]); // Autofill title
+      }
+    } catch (err) {}
+  };
+
+  const handleUpload = async () => {
+    if (!title || !file) {
+      alert("Please select a file and enter a title.");
+      return;
+    }
+    
+    setUploading(true);
+    try {
+      await addMaterial({
+        title,
+        desc: desc || 'Document',
+        type: (file.name ? file.name.split('.').pop().toUpperCase() : 'DOC').substring(0, 15),
+        size: (file.size / (1024 * 1024)).toFixed(1) + ' MB',
+        uri: file.uri,
+        fileName: file.name,
+        mimeType: file.mimeType || 'application/pdf',
+      });
+      setUploading(false);
+      goBack();
+    } catch (e) {
+      alert("Upload failed: " + e.message);
+      setUploading(false);
+    }
+  };
 
   return (
     <View style={styles.screenContainer}>
       <StaffScreenHeader title="Upload Material" showBack goBack={goBack} />
       <ScrollView style={{ flex: 1, padding: 16 }}>
-        <TouchableOpacity style={styles.uploadBox}>
-          <UploadCloud size={48} color={THEME.colors.secondary} />
-          <Text style={styles.uploadBoxText}>Tap to browse or drag file here</Text>
-          <Text style={styles.uploadBoxSub}>Support PDF, DOCX, PPTX (Max 50MB)</Text>
+        <TouchableOpacity style={[styles.uploadBox, file && { borderColor: THEME.colors.primary, backgroundColor: THEME.colors.primary + '05' }]} onPress={pickDocument}>
+          {file ? (
+            <>
+              <Paperclip size={48} color={THEME.colors.primary} />
+              <Text style={[styles.uploadBoxText, { color: THEME.colors.primary }]}>{file.name}</Text>
+              <Text style={styles.uploadBoxSub}>{(file.size / (1024 * 1024)).toFixed(1)} MB • Tap to change</Text>
+            </>
+          ) : (
+            <>
+              <UploadCloud size={48} color={THEME.colors.secondary} />
+              <Text style={styles.uploadBoxText}>Tap to browse or drag file here</Text>
+              <Text style={styles.uploadBoxSub}>Support PDF, DOCX, PPTX (Max 50MB)</Text>
+            </>
+          )}
         </TouchableOpacity>
+        
         <StaffInputField label="Document Title" value={title} onChangeText={setTitle} placeholder="e.g., Chapter 5 Notes" />
         <StaffInputField label="Description (Optional)" value={desc} onChangeText={setDesc} placeholder="Brief description..." multiline />
+        
         <View style={{ marginTop: 32 }}>
-          <StaffPrimaryButton title="Upload File" onPress={handleUpload} color={THEME.colors.actions.blue} />
+          <StaffPrimaryButton 
+            title={uploading ? "Uploading..." : "Publish to Students"} 
+            onPress={handleUpload} 
+            color={THEME.colors.actions.blue} 
+            disabled={uploading}
+          />
         </View>
       </ScrollView>
     </View>
@@ -200,11 +263,9 @@ export function StudentsScreen({ students, deleteStudent }) {
                 <View style={styles.studentAvatarWrap}><Text style={styles.studentAvatarText}>{student.avatar}</Text></View>
                 <View style={styles.studentInfo}>
                   <Text style={styles.studentName}>{student.name}</Text>
-                  <Text style={styles.studentScore}>Overall Score: {student.score}%</Text>
+                  <Text style={styles.studentScore}>{student.registerNumber ? `Reg: ${student.registerNumber}` : ''}{student.email ? ` • ${student.email}` : ''}</Text>
+                  {student.department ? <Text style={[styles.studentScore, { color: '#3B82F6', fontWeight: '600' }]}>{student.department}</Text> : null}
                 </View>
-                <TouchableOpacity onPress={() => deleteStudent(student.id)} style={styles.deleteBtn}>
-                  <Trash2 size={20} color={THEME.colors.status.error} />
-                </TouchableOpacity>
               </View>
             </StaffCard>
           ))
@@ -218,29 +279,89 @@ export function StudentsScreen({ students, deleteStudent }) {
 export function CreateTestScreen({ addTest, goBack }) {
   const [title, setTitle] = useState('');
   const [duration, setDuration] = useState('60');
-  const [questions, setQuestions] = useState([{ id: '1', q: '' }]);
+  const [questions, setQuestions] = useState([
+    { id: '1', question_text: '', option_a: '', option_b: '', option_c: '', option_d: '', correct_answer: 'A' }
+  ]);
+
+  const updateQuestion = (id, field, value) => {
+    setQuestions(prev => prev.map(q => q.id === id ? { ...q, [field]: value } : q));
+  };
+
+  const addQuestion = () => {
+    setQuestions(prev => [...prev, { id: Date.now().toString(), question_text: '', option_a: '', option_b: '', option_c: '', option_d: '', correct_answer: 'A' }]);
+  };
+
+  const removeQuestion = (id) => {
+    if (questions.length <= 1) return;
+    setQuestions(prev => prev.filter(q => q.id !== id));
+  };
   
-  const saveTest = () => { if(title) { addTest({ title, duration: duration + 'm', date: 'Upcoming', questions: questions.length }); goBack(); } };
+  const saveTest = () => {
+    if (!title.trim()) { alert('Please enter a test title.'); return; }
+    const validQs = questions.filter(q => q.question_text.trim() && q.option_a.trim() && q.option_b.trim());
+    if (validQs.length === 0) { alert('Please add at least 1 question with options.'); return; }
+    
+    addTest({
+      title: title.trim(),
+      duration: duration + 'm',
+      questions: validQs.map(q => ({
+        question_text: q.question_text.trim(),
+        option_a: q.option_a.trim(),
+        option_b: q.option_b.trim(),
+        option_c: q.option_c.trim() || 'N/A',
+        option_d: q.option_d.trim() || 'N/A',
+        correct_answer: q.correct_answer,
+      }))
+    });
+    goBack();
+  };
 
   return (
     <View style={styles.screenContainer}>
       <StaffScreenHeader title="Create New Test" showBack goBack={goBack} />
-      <ScrollView style={{ flex: 1, padding: 16 }}>
+      <ScrollView style={{ flex: 1, padding: 16 }} keyboardShouldPersistTaps="handled">
         <StaffCard style={{ marginBottom: 24 }}>
           <StaffInputField label="Test Title" value={title} onChangeText={setTitle} placeholder="e.g., Weekly Mathematics Quiz" />
           <StaffInputField label="Duration (minutes)" value={duration} onChangeText={setDuration} keyboardType="numeric" />
         </StaffCard>
         <View style={styles.questionsHeader}>
           <Text style={styles.questionsTitle}>Questions ({questions.length})</Text>
-          <TouchableOpacity onPress={() => setQuestions([...questions, { id: Date.now().toString(), q: '' }])} style={styles.addQuestionBtn}>
+          <TouchableOpacity onPress={addQuestion} style={styles.addQuestionBtn}>
             <Plus size={16} color="#FFF" style={{ marginRight: 4 }} />
             <Text style={styles.addQuestionText}>Add</Text>
           </TouchableOpacity>
         </View>
         {questions.map((q, i) => (
           <StaffCard key={q.id} style={{ marginBottom: 16 }}>
-            <Text style={styles.qIndex}>Question {i + 1}</Text>
-            <TextInput style={styles.qInput} placeholder="Enter question text..." multiline />
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <Text style={styles.qIndex}>Question {i + 1}</Text>
+              {questions.length > 1 && (
+                <TouchableOpacity onPress={() => removeQuestion(q.id)} style={{ padding: 4 }}>
+                  <Trash2 size={18} color={THEME.colors.status.error} />
+                </TouchableOpacity>
+              )}
+            </View>
+            <TextInput style={styles.qInput} placeholder="Enter question text..." multiline value={q.question_text} onChangeText={(v) => updateQuestion(q.id, 'question_text', v)} />
+            <View style={{ marginTop: 12 }}>
+              {['A', 'B', 'C', 'D'].map(opt => (
+                <View key={opt} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                  <TouchableOpacity 
+                    onPress={() => updateQuestion(q.id, 'correct_answer', opt)}
+                    style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: q.correct_answer === opt ? '#059669' : '#D1D5DB', backgroundColor: q.correct_answer === opt ? '#D1FAE5' : '#FFF', alignItems: 'center', justifyContent: 'center', marginRight: 8 }}
+                  >
+                    {q.correct_answer === opt && <Check size={14} color="#059669" />}
+                  </TouchableOpacity>
+                  <Text style={{ width: 20, fontWeight: '700', color: '#6B7280' }}>{opt}.</Text>
+                  <TextInput 
+                    style={{ flex: 1, borderBottomWidth: 1, borderColor: '#E5E7EB', paddingVertical: 6, paddingHorizontal: 8, fontSize: 14, color: '#111827' }}
+                    placeholder={`Option ${opt}`} 
+                    value={q[`option_${opt.toLowerCase()}`]}
+                    onChangeText={(v) => updateQuestion(q.id, `option_${opt.toLowerCase()}`, v)}
+                  />
+                </View>
+              ))}
+              <Text style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>Tap the circle to mark the correct answer</Text>
+            </View>
           </StaffCard>
         ))}
         <View style={{ marginVertical: 32 }}>
@@ -269,16 +390,18 @@ export function MaterialsScreen({ materials, deleteMaterial, navigate }) {
         ) : (
           materials.map((m) => (
             <StaffCard key={m.id} style={{ marginBottom: 12 }}>
-              <View style={styles.studentCardRow}>
-                <View style={[styles.matIconWrap, { backgroundColor: `${THEME.colors.actions.orange}20` }]}><FileText size={24} color={THEME.colors.actions.orange} /></View>
-                <View style={styles.studentInfo}>
-                  <Text style={styles.studentName}>{m.title}</Text>
-                  <Text style={styles.studentScore}>{m.type} • {m.size} • Uploaded {m.date}</Text>
+              <TouchableOpacity onPress={() => handleOpenMaterial(m.file_download_url || m.fileUrl, m.title, m.file_type)}>
+                <View style={styles.studentCardRow}>
+                  <View style={[styles.matIconWrap, { backgroundColor: `${THEME.colors.actions.orange}20` }]}><FileText size={24} color={THEME.colors.actions.orange} /></View>
+                  <View style={styles.studentInfo}>
+                    <Text style={styles.studentName}>{m.title}</Text>
+                    <Text style={styles.studentScore}>{m.file_type || m.type} • {m.size} • Uploaded {m.date_created ? new Date(m.date_created).toLocaleDateString() : ''}</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => deleteMaterial(m.id)} style={styles.deleteBtn}>
+                    <Trash2 size={20} color={THEME.colors.text.muted} />
+                  </TouchableOpacity>
                 </View>
-                <TouchableOpacity onPress={() => deleteMaterial(m.id)} style={styles.deleteBtn}>
-                  <Trash2 size={20} color={THEME.colors.text.muted} />
-                </TouchableOpacity>
-              </View>
+              </TouchableOpacity>
             </StaffCard>
           ))
         )}
@@ -288,20 +411,40 @@ export function MaterialsScreen({ materials, deleteMaterial, navigate }) {
   );
 }
 
-export function PerformanceScreen({ students, goBack }) {
-  const avgScore = Math.round(students.reduce((acc, s) => acc + s.score, 0) / students.length) || 0;
+export function PerformanceScreen({ students, submissions = [], goBack }) {
+  const avgScore = submissions.length > 0 ? Math.round(submissions.reduce((acc, s) => acc + (s.score / s.total * 100), 0) / submissions.length) : 0;
   return (
     <View style={styles.screenContainer}>
       <StaffScreenHeader title="Class Performance" showBack goBack={goBack} />
       <ScrollView style={{ flex: 1, padding: 16 }}>
         <StaffCard style={styles.avgCard}>
-          <Text style={styles.sectionTitleBlackBase}>Class Average</Text>
+          <Text style={styles.sectionTitleBlackBase}>Test Average</Text>
           <View style={styles.avgCircle}>
             <Text style={styles.avgScoreText}>{avgScore}%</Text>
-            <Text style={styles.avgScoreSub}>Overall</Text>
+            <Text style={styles.avgScoreSub}>Accuracy</Text>
           </View>
         </StaffCard>
-        <Text style={[styles.sectionTitleBlackBase, { marginBottom: 16 }]}>Student Rankings</Text>
+
+        <Text style={[styles.sectionTitleBlackBase, { marginBottom: 16 }]}>Recent Submissions</Text>
+        {submissions.length === 0 ? (
+          <Text style={{ marginHorizontal: 16, color: '#6B7280', fontStyle: 'italic' }}>No submissions yet.</Text>
+        ) : (
+          submissions.map((sub, i) => (
+            <StaffCard key={sub.id || i} style={{ marginBottom: 12 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827' }}>{sub.studentName || 'Student'}</Text>
+                    <Text style={{ fontSize: 13, color: '#6B7280' }}>Test ID: {sub.test} • {new Date(sub.submitted_at).toLocaleDateString()}</Text>
+                  </View>
+                  <View style={{ backgroundColor: (sub.score/sub.total) >= 0.5 ? '#D1FAE5' : '#FEE2E2', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 }}>
+                    <Text style={{ color: (sub.score/sub.total) >= 0.5 ? '#047857' : '#DC2626', fontWeight: '800' }}>{sub.score}/{sub.total}</Text>
+                  </View>
+                </View>
+            </StaffCard>
+          ))
+        )}
+
+        <Text style={[styles.sectionTitleBlackBase, { marginTop: 24, marginBottom: 16 }]}>Student Rankings</Text>
         <View>
           {[...students].sort((a,b) => b.score - a.score).map((s, i) => (
             <View key={s.id} style={styles.rankRow}>
@@ -318,18 +461,99 @@ export function PerformanceScreen({ students, goBack }) {
   );
 }
 
-export function StaffProfileScreen({ profile, onLogout }) {
+export function StaffProfileScreen({ profile, onLogout, currentUser, updateCurrentUser }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [formData, setFormData] = useState({
+    fullName: currentUser?.fullName || profile.name || '',
+    department: currentUser?.department || profile.subject || '',
+    collegeName: currentUser?.collegeName || '',
+    collegeCode: currentUser?.collegeCode || ''
+  });
+
+  const handleSave = async () => {
+    if (!currentUser?.id) return;
+    setSaving(true);
+    try {
+      const userRef = doc(db, 'users', currentUser.id);
+      await updateDoc(userRef, formData);
+      if (updateCurrentUser) {
+        updateCurrentUser(formData);
+      }
+      setIsEditing(false);
+    } catch (e) {
+      console.log('Error updating staff profile:', e.message);
+    }
+    setSaving(false);
+  };
+
   return (
     <View style={styles.screenContainer}>
       <StaffHeaderBackground />
       <View style={styles.spProfileHeader}>
-        <View style={styles.spAvatarWrap}><Text style={styles.spAvatarText}>{profile.name ? profile.name.charAt(0) : 'S'}</Text></View>
-        <Text style={styles.spName}>{profile.name || 'Staff Member'}</Text>
-        <Text style={styles.spRole}>{profile.role || 'Staff Role'} - {profile.subject || 'Subject'}</Text>
+        <View style={styles.spAvatarWrap}><Text style={styles.spAvatarText}>{currentUser?.fullName ? currentUser.fullName.charAt(0) : 'S'}</Text></View>
+        <Text style={styles.spName}>{currentUser?.fullName || 'Staff Member'}</Text>
+        <Text style={styles.spRole}>{profile.role || 'Staff Role'} - {currentUser?.department || 'Subject'}</Text>
       </View>
-      <View style={{ padding: 16, marginTop: 32 }}>
+      <ScrollView style={{ padding: 16, marginTop: 16 }}>
+        <StaffCard style={{ marginBottom: 16 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+             <Text style={[styles.sectionTitleBlack, { marginBottom: 0 }]}>Academic Info</Text>
+             <TouchableOpacity style={{ padding: 8, backgroundColor: isEditing ? '#fee2e2' : '#EFF6FF', borderRadius: 8 }} onPress={() => setIsEditing(!isEditing)}>
+               {isEditing ? <X color="#dc2626" size={18} /> : <Edit2 color={THEME.colors.primary.base} size={18} />}
+             </TouchableOpacity>
+          </View>
+
+          <View style={{ marginBottom: 12 }}>
+            <Text style={{ fontSize: 12, color: '#6B7280', fontWeight: '600', textTransform: 'uppercase', marginBottom: 4 }}>Full Name</Text>
+            {isEditing ? (
+              <TextInput style={styles.editInput} value={formData.fullName} onChangeText={(t) => setFormData(prev => ({...prev, fullName: t}))} />
+            ) : (
+              <Text style={{ fontSize: 16, color: '#111827', fontWeight: '600' }}>{currentUser?.fullName || 'Not specified'}</Text>
+            )}
+          </View>
+
+          <View style={{ marginBottom: 12 }}>
+            <Text style={{ fontSize: 12, color: '#6B7280', fontWeight: '600', textTransform: 'uppercase', marginBottom: 4 }}>Department</Text>
+            {isEditing ? (
+              <TextInput style={styles.editInput} value={formData.department} onChangeText={(t) => setFormData(prev => ({...prev, department: t}))} />
+            ) : (
+              <Text style={{ fontSize: 16, color: '#111827', fontWeight: '600' }}>{currentUser?.department || profile.subject || 'Not specified'}</Text>
+            )}
+          </View>
+
+          <View style={{ marginBottom: 12 }}>
+            <Text style={{ fontSize: 12, color: '#6B7280', fontWeight: '600', textTransform: 'uppercase', marginBottom: 4 }}>College Name</Text>
+            {isEditing ? (
+              <TextInput style={styles.editInput} value={formData.collegeName} onChangeText={(t) => setFormData(prev => ({...prev, collegeName: t}))} />
+            ) : (
+              <Text style={{ fontSize: 16, color: '#111827', fontWeight: '600' }}>{currentUser?.collegeName || 'Not specified'}</Text>
+            )}
+          </View>
+
+          <View style={{ marginBottom: 12 }}>
+            <Text style={{ fontSize: 12, color: '#6B7280', fontWeight: '600', textTransform: 'uppercase', marginBottom: 4 }}>College Code</Text>
+            {isEditing ? (
+              <TextInput style={styles.editInput} value={formData.collegeCode} onChangeText={(t) => setFormData(prev => ({...prev, collegeCode: t}))} />
+            ) : (
+              <Text style={{ fontSize: 16, color: '#111827', fontWeight: '600' }}>{currentUser?.collegeCode || 'Not specified'}</Text>
+            )}
+          </View>
+
+          <View style={{ marginBottom: isEditing ? 24 : 0 }}>
+            <Text style={{ fontSize: 12, color: '#6B7280', fontWeight: '600', textTransform: 'uppercase', marginBottom: 4 }}>Email (Non-editable)</Text>
+            <Text style={{ fontSize: 16, color: '#111827', fontWeight: '600' }}>{currentUser?.email || 'Not specified'}</Text>
+          </View>
+
+          {isEditing && (
+             <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: THEME.colors.primary.base, marginTop: 16, padding: 14 }, saving && { opacity: 0.7 }]} onPress={handleSave} disabled={saving}>
+               <Text style={styles.primaryBtnText}>{saving ? 'Saving...' : 'Save Changes'}</Text>
+             </TouchableOpacity>
+          )}
+        </StaffCard>
         <StaffPrimaryButton title="Log Out" color={THEME.colors.status.error} onPress={onLogout} />
-      </View>
+        <View style={{ height: 100 }} />
+      </ScrollView>
     </View>
   );
 }
