@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, TextInput, Modal, KeyboardAvoidingView, Platform, Linking, ActivityIndicator, Alert, Keyboard } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BrainCircuit, CheckCircle2, Circle, Plus, Trash2, Edit2, PlayCircle, Upload, FileText, UploadCloud, ChevronLeft, Check, Clock, Send, User, Paperclip, X, BookOpen, Award, ChevronRight } from 'lucide-react-native';
+import { BrainCircuit, CheckCircle2, Circle, Plus, Trash2, Edit2, PlayCircle, Upload, FileText, UploadCloud, ChevronLeft, Check, Clock, Send, User, Paperclip, X, BookOpen, Award, ChevronRight, Mic } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
+import { Audio } from 'expo-av';
 import * as Sharing from 'expo-sharing';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { COLORS } from '../utils/theme';
@@ -11,7 +12,12 @@ import { db } from '../utils/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import * as DocumentPicker from 'expo-document-picker';
 
-export const BASE_API_URL = "http://192.168.0.4:8000/api/";
+// Toggle this to false when you want to develop and test on your local PC
+const USE_PROD_API = false; 
+
+export const BASE_API_URL = USE_PROD_API 
+  ? "https://suyambu08.pythonanywhere.com/api/"
+  : "http://192.168.0.4:8000/api/";
 
 export const handleOpenMaterial = async (url, title, extension) => {
   if (!url) return;
@@ -532,7 +538,8 @@ export function TestTab({ tests, materials = [], teachers, currentUser, navigate
 // =============================================
 // AI CHAT TAB - Uses Google Gemini API
 // =============================================
-const GEMINI_API_KEY = "AIzaSyDnRqUWyH6Dh65WP4ilvdgNzp88ioDjEDM";
+const GEMINI_API_KEY_PRIMARY = "AIzaSyACg_y85Co7Rf7HNewD8s-YlMjDd_jabuY";
+const GEMINI_API_KEY_BACKUP = "AIzaSyDBWH8FAWTcsr4OJcSI15H3sjDgO4J3M04";
 
 const TypingDots = () => {
   const [dots, setDots] = useState('');
@@ -580,6 +587,8 @@ export function AIChatTab({ currentUser, tests }) {
   const [isTyping, setIsTyping] = useState(false);
   const scrollViewRef = useRef(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  
+  const [selectedFile, setSelectedFile] = useState(null);
 
   useEffect(() => {
     const showSub = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setKeyboardVisible(true));
@@ -600,34 +609,86 @@ export function AIChatTab({ currentUser, tests }) {
     if (currentUser) await AsyncStorage.setItem(`chat_${currentUser.id}`, JSON.stringify(newMsgs));
   };
 
+  const handlePickFile = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['*/*'],
+        copyToCacheDirectory: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const file = result.assets[0];
+        if (file.size > 10 * 1024 * 1024) {
+          Alert.alert('File too large', 'Please select a file under 10MB.');
+          return;
+        }
+        const base64 = await FileSystem.readAsStringAsync(file.uri, { encoding: FileSystem.EncodingType.Base64 });
+        setSelectedFile({
+          name: file.name,
+          mimeType: file.mimeType || 'application/pdf',
+          base64: base64
+        });
+      }
+    } catch (err) {
+      Alert.alert('Error', 'Could not select document.');
+    }
+  };
+
   const handleSend = async (customText) => {
     const textToSend = (customText || input).trim();
-    if (!textToSend) return;
+    if (!textToSend && !selectedFile) return;
 
-    const userMsg = { id: Date.now(), sender: 'user', text: textToSend };
+    let displayMsg = textToSend;
+    if (selectedFile) displayMsg = textToSend ? `[Attached File: ${selectedFile.name}]\n${textToSend}` : `[Attached File: ${selectedFile.name}]`;
+
+    const userMsg = { id: Date.now(), sender: 'user', text: displayMsg, fileData: selectedFile };
     const updated = [...chatMessages, userMsg];
     saveChat(updated);
     setInput('');
+    const currentAttachment = selectedFile;
+    setSelectedFile(null);
     setIsTyping(true);
 
     try {
       const testsContext = tests && tests.length > 0 ? `\nHere are the current available tests: ${JSON.stringify(tests.map(t => ({ title: t.title, duration: t.duration, questions: t.questions?.map(q => ({ question: q.question_text, options: [q.option_a, q.option_b, q.option_c, q.option_d], correct_answer: q.correct_option })) })))}` : '';
       const systemInstruction = `You are a brilliant and friendly Student Assistant for ${currentUser?.fullName || 'a student'} in the ${currentUser?.department || 'General'} department. You excel at:\n- Crystal-clear explanations with real-world analogies\n- Step-by-step problem solving\n- Creating practice questions and quizzes\n- Providing test answers from the available tests context\nBe concise yet thorough. Use bullet points. Be encouraging and supportive.${testsContext}`;
       
-      const contents = updated.slice(-20).map(m => ({
-        role: m.sender === 'user' ? 'user' : 'model',
-        parts: [{ text: m.text }]
-      }));
-
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: { parts: { text: systemInstruction } },
-          contents: contents,
-          generationConfig: { temperature: 0.7 }
-        })
+      const contents = updated.slice(-20).map(m => {
+        const parts = [{ text: m.text }];
+        if (m.fileData) {
+          parts.push({
+            inlineData: {
+              mimeType: m.fileData.mimeType,
+              data: m.fileData.base64
+            }
+          });
+        }
+        return {
+          role: m.sender === 'user' ? 'user' : 'model',
+          parts: parts
+        };
       });
+
+      const payload = {
+        systemInstruction: { parts: { text: systemInstruction } },
+        contents: contents,
+        generationConfig: { temperature: 0.7 }
+      };
+
+      const makeApiRequest = async (key) => {
+        return fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+      };
+
+      let response = await makeApiRequest(GEMINI_API_KEY_PRIMARY);
+      
+      if (!response.ok && response.status === 429) {
+        console.log("Primary API key rate limited/exhausted. Attempting backup key...");
+        response = await makeApiRequest(GEMINI_API_KEY_BACKUP);
+      }
 
       const data = await response.json();
       if (!response.ok || data.error) {
@@ -717,7 +778,21 @@ export function AIChatTab({ currentUser, tests }) {
 
       {/* Input bar */}
       <View style={{ backgroundColor: '#FFF', borderTopWidth: 1, borderColor: '#E5E7EB', paddingHorizontal: 16, paddingVertical: 12, paddingBottom: Platform.OS === 'ios' ? 28 : 12 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'flex-end', backgroundColor: '#FFFFFF', borderRadius: 28, paddingHorizontal: 18, paddingVertical: 6, borderWidth: 1.5, borderColor: input ? '#2563EB' : '#D1D5DB', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4 }}>
+        {selectedFile && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#EFF6FF', padding: 8, borderRadius: 12, marginBottom: 8, alignSelf: 'flex-start' }}>
+            <Paperclip size={14} color="#3B82F6" style={{ marginRight: 6 }} />
+            <Text style={{ fontSize: 13, color: '#1E3A8A', fontWeight: '500', marginRight: 12, maxWidth: 200 }} numberOfLines={1}>{selectedFile.name}</Text>
+            <TouchableOpacity onPress={() => setSelectedFile(null)}>
+              <X size={16} color="#3B82F6" />
+            </TouchableOpacity>
+          </View>
+        )}
+        <View style={{ flexDirection: 'row', alignItems: 'flex-end', backgroundColor: '#FFFFFF', borderRadius: 28, paddingHorizontal: 18, paddingVertical: 6, borderWidth: 1.5, borderColor: input || selectedFile ? '#2563EB' : '#D1D5DB', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4 }}>
+          
+          <TouchableOpacity onPress={handlePickFile} style={{ paddingBottom: 10, marginRight: 8 }}>
+            <Paperclip color="#6B7280" size={20} />
+          </TouchableOpacity>
+
           <TextInput
             style={{ flex: 1, fontSize: 16, color: '#1F2937', minHeight: 44, maxHeight: 100, paddingVertical: 8 }}
             value={input}
@@ -727,7 +802,7 @@ export function AIChatTab({ currentUser, tests }) {
             multiline
             onSubmitEditing={() => handleSend()}
           />
-          <TouchableOpacity onPress={() => handleSend()} disabled={!input.trim()} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: input.trim() ? '#2563EB' : '#D1D5DB', alignItems: 'center', justifyContent: 'center', marginLeft: 8, marginBottom: 2 }}>
+          <TouchableOpacity onPress={() => handleSend()} disabled={!input.trim() && !selectedFile} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: input.trim() || selectedFile ? '#2563EB' : '#D1D5DB', alignItems: 'center', justifyContent: 'center', marginLeft: 8, marginBottom: 2 }}>
             <Send color="#FFF" size={18} />
           </TouchableOpacity>
         </View>

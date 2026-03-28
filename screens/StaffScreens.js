@@ -227,7 +227,7 @@ export function UploadMaterialScreen({ addMaterial, goBack }) {
   );
 }
 
-export function StudentsScreen({ students, submissions = [], deleteStudent }) {
+export function StudentsScreen({ students, submissions = [], deleteStudent, currentUser }) {
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
@@ -239,12 +239,15 @@ export function StudentsScreen({ students, submissions = [], deleteStudent }) {
       const resp = await fetch(`${BASE_API_URL}assignments/?studentId=${student.id || student.uid}`);
       const data = await resp.json();
       
-      if (data && data.length > 0) {
+      const teacherId = currentUser?.id || currentUser?.uid;
+      const myAssignments = data.filter(a => a.teacherId === teacherId);
+
+      if (myAssignments && myAssignments.length > 0) {
         setStudentName(student.name);
-        setSelectedAssignments(data);
+        setSelectedAssignments(myAssignments);
         setModalVisible(true);
       } else {
-        alert(`No assignments currently uploaded to server by ${student.name}.`);
+        alert(`No assignments currently uploaded to you by ${student.name}.`);
       }
     } catch (e) {
       alert(`Network error fetching assignments for ${student.name}.`);

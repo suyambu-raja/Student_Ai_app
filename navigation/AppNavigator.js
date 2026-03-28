@@ -8,7 +8,7 @@ import { COLORS, STAFF_THEME } from '../utils/theme';
 
 import LoadingScreen from '../components/LoadingScreen';
 import AuthScreen from '../screens/AuthScreen';
-import { HomeTab, StudyTab, TestTab, AIChatTab, ProfileTab, StudentUploadNotesScreen, StudentWatchVideosScreen, StudentUploadAssignmentScreen } from '../screens/StudentScreens';
+import { BASE_API_URL, HomeTab, StudyTab, TestTab, AIChatTab, ProfileTab, StudentUploadNotesScreen, StudentWatchVideosScreen, StudentUploadAssignmentScreen } from '../screens/StudentScreens';
 import { StaffHomeScreen, UploadMaterialScreen, StudentsScreen, CreateTestScreen, MaterialsScreen, PerformanceScreen, StaffProfileScreen, StaffPrimaryButton } from '../screens/StaffScreens';
 
 import { auth, db } from '../utils/firebase';
@@ -19,7 +19,7 @@ import {
   signOut 
 } from 'firebase/auth';
 
-const BASE_API_URL = "http://192.168.0.4:8000/api/";
+
 import { 
   getDoc, 
   doc, 
@@ -268,7 +268,7 @@ function StaffTabs({ handleLogout, data, commands, refreshData, currentUser, upd
         {(props) => <StaffHomeScreen profile={data.profile} students={data.students} materials={data.materials} tests={data.tests} submissions={data.submissions || []} navigate={props.navigation.navigate} deleteTest={commands.deleteTest} />}
       </Tab.Screen>
       <Tab.Screen name="StudentsTab" options={{ tabBarLabel: 'Students', tabBarIcon: ({ color }) => <Users color={color} size={24} /> }}>
-        {(props) => <StudentsScreen students={data.students} submissions={data.submissions || []} deleteStudent={commands.deleteStudent} />}
+        {(props) => <StudentsScreen students={data.students} submissions={data.submissions || []} deleteStudent={commands.deleteStudent} currentUser={currentUser} />}
       </Tab.Screen>
       <Tab.Screen name="MaterialsTab" options={{ tabBarLabel: 'Materials', tabBarIcon: ({ color }) => <BookOpen color={color} size={24} /> }}>
         {(props) => <MaterialsScreen materials={data.materials} deleteMaterial={commands.deleteMaterial} navigate={props.navigation.navigate} />}
@@ -316,12 +316,21 @@ function StaffApp({ handleLogout, currentUser, updateCurrentUser }) {
   const fetchData = async () => {
     try {
       const dept = (currentUser.department || '').trim();
+      const teacherId = currentUser.uid || currentUser.id;
+
       const respMat = await fetch(`${BASE_API_URL}materials/?collegeCode=${currentUser.collegeCode}&department=${encodeURIComponent(dept)}`);
-      const materials = await respMat.json();
+      const allMaterials = await respMat.json();
+      const materials = allMaterials.filter(m => m.teacherId === teacherId);
+
       const respTests = await fetch(`${BASE_API_URL}tests/?collegeCode=${currentUser.collegeCode}&department=${encodeURIComponent(dept)}`);
-      const tests = await respTests.json();
+      const allTests = await respTests.json();
+      const tests = allTests.filter(t => t.teacherId === teacherId);
+
       const respSubs = await fetch(`${BASE_API_URL}submissions/?collegeCode=${currentUser.collegeCode}&department=${encodeURIComponent(dept)}`);
-      const submissions = await respSubs.json();
+      const allSubmissions = await respSubs.json();
+      const testIds = tests.map(t => t.id);
+      const submissions = allSubmissions.filter(s => testIds.includes(s.test));
+
       setData(prev => ({ ...prev, materials, tests, submissions }));
     } catch (e) {}
   };
