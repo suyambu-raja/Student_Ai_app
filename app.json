@@ -27,7 +27,7 @@
       "favicon": "./assets/favicon.png"
     },
     "extra": {
-      "firebaseApiKey": "AIzaSyDjbhzca6qnx2pxxMkiTJCTG4wu3sNvWOU",
+      "firebaseApiKey": "FIREBASE_API_KEY_PLACEHOLDER",
       "eas": {
         "projectId": "09167576-e993-4711-89da-727237953fca"
       }

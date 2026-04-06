@@ -6,6 +6,7 @@ from django.conf import settings
 from .models import Material, Test, Question, TestSubmission, AssignmentSubmission
 from .serializers import MaterialSerializer, TestSerializer, TestCreateSerializer, TestSubmissionSerializer, AssignmentSubmissionSerializer
 import json
+import time
 import urllib.request
 import urllib.error
 
@@ -116,39 +117,56 @@ def gemini_chat(request):
 
     payload_bytes = json.dumps(payload).encode('utf-8')
 
-    try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
-        req = urllib.request.Request(
-            url,
-            data=payload_bytes,
-            headers={"Content-Type": "application/json"},
-            method="POST"
-        )
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            resp_data = json.loads(resp.read().decode('utf-8'))
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    max_retries = 2
+    last_error = None
 
-        ai_text = ""
+    for attempt in range(max_retries + 1):
         try:
-            ai_text = resp_data["candidates"][0]["content"]["parts"][0]["text"]
-        except (KeyError, IndexError):
-            ai_text = "Sorry, I couldn't generate a response."
+            req = urllib.request.Request(
+                url,
+                data=payload_bytes,
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                resp_data = json.loads(resp.read().decode('utf-8'))
 
-        return Response({"text": ai_text})
+            ai_text = ""
+            try:
+                ai_text = resp_data["candidates"][0]["content"]["parts"][0]["text"]
+            except (KeyError, IndexError):
+                ai_text = "Sorry, I couldn't generate a response."
 
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode('utf-8') if e.fp else str(e)
-        try:
-            error_json = json.loads(error_body)
-            error_msg = error_json.get("error", {}).get("message", error_body)
-        except (json.JSONDecodeError, AttributeError):
-            error_msg = error_body
-        return Response(
-            {"error": f"Gemini API error: {error_msg}"},
-            status=e.code
-        )
-    except Exception as e:
-        return Response(
-            {"error": f"Server error: {str(e)}"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+            return Response({"text": ai_text})
+
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode('utf-8') if e.fp else str(e)
+
+            # If rate-limited (429), wait and retry
+            if e.code == 429 and attempt < max_retries:
+                time.sleep(5)  # Wait 5 seconds before retrying
+                continue
+
+            try:
+                error_json = json.loads(error_body)
+                error_msg = error_json.get("error", {}).get("message", error_body)
+            except (json.JSONDecodeError, AttributeError):
+                error_msg = error_body
+
+            if e.code == 429:
+                return Response(
+                    {"text": "I'm a bit busy right now! 😊 Please wait a few seconds and try again."},
+                    status=status.HTTP_200_OK
+                )
+
+            return Response(
+                {"error": f"Gemini API error: {error_msg}"},
+                status=e.code
+            )
+        except Exception as e:
+            return Response(
+                {"error": f"Server error: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
