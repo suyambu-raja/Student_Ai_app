@@ -12,12 +12,11 @@ import { db } from '../utils/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import * as DocumentPicker from 'expo-document-picker';
 
-// Toggle this to false when you want to develop and test on your local PC
-const USE_PROD_API = false; 
-
-export const BASE_API_URL = USE_PROD_API 
-  ? "https://suyambu08.pythonanywhere.com/api/"
-  : "http://192.168.0.4:8000/api/";
+// Automatically uses Localhost when testing in Expo Go,
+// and automatically uses Deployed Server when packaged into an APK!
+export const BASE_API_URL = __DEV__
+  ? "http://192.168.0.4:8000/api/" 
+  : "https://suyambu08.pythonanywhere.com/api/";
 
 export const handleOpenMaterial = async (url, title, extension) => {
   if (!url) return;
@@ -536,10 +535,8 @@ export function TestTab({ tests, materials = [], teachers, currentUser, navigate
 }
 
 // =============================================
-// AI CHAT TAB - Uses Google Gemini API
+// AI CHAT TAB - Uses Firebase AI Logic (Secure, no exposed API keys)
 // =============================================
-const GEMINI_API_KEY_PRIMARY = "AIzaSyACg_y85Co7Rf7HNewD8s-YlMjDd_jabuY";
-const GEMINI_API_KEY_BACKUP = "AIzaSyDBWH8FAWTcsr4OJcSI15H3sjDgO4J3M04";
 
 const TypingDots = () => {
   const [dots, setDots] = useState('');
@@ -653,6 +650,7 @@ export function AIChatTab({ currentUser, tests }) {
       const testsContext = tests && tests.length > 0 ? `\nHere are the current available tests: ${JSON.stringify(tests.map(t => ({ title: t.title, duration: t.duration, questions: t.questions?.map(q => ({ question: q.question_text, options: [q.option_a, q.option_b, q.option_c, q.option_d], correct_answer: q.correct_option })) })))}` : '';
       const systemInstruction = `You are a brilliant and friendly Student Assistant for ${currentUser?.fullName || 'a student'} in the ${currentUser?.department || 'General'} department. You excel at:\n- Crystal-clear explanations with real-world analogies\n- Step-by-step problem solving\n- Creating practice questions and quizzes\n- Providing test answers from the available tests context\nBe concise yet thorough. Use bullet points. Be encouraging and supportive.${testsContext}`;
       
+      // Build chat contents from messages (last 20)
       const contents = updated.slice(-20).map(m => {
         const parts = [{ text: m.text }];
         if (m.fileData) {
@@ -669,36 +667,27 @@ export function AIChatTab({ currentUser, tests }) {
         };
       });
 
-      const payload = {
-        systemInstruction: { parts: { text: systemInstruction } },
-        contents: contents,
-        generationConfig: { temperature: 0.7 }
-      };
-
-      const makeApiRequest = async (key) => {
-        return fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-      };
-
-      let response = await makeApiRequest(GEMINI_API_KEY_PRIMARY);
-      
-      if (!response.ok && response.status === 429) {
-        console.log("Primary API key rate limited/exhausted. Attempting backup key...");
-        response = await makeApiRequest(GEMINI_API_KEY_BACKUP);
-      }
+      // Call backend proxy — API key stays server-side
+      const response = await fetch(`${BASE_API_URL}gemini-chat/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction,
+          contents,
+          generationConfig: { temperature: 0.7 }
+        })
+      });
 
       const data = await response.json();
       if (!response.ok || data.error) {
-        const errMsg = data.error?.message || JSON.stringify(data.error);
-        saveChat([...updated, { id: Date.now() + 1, sender: 'ai', text: `API Error: ${errMsg}` }]);
+        const errMsg = data.error || 'Unknown error from AI service.';
+        saveChat([...updated, { id: Date.now() + 1, sender: 'ai', text: `Error: ${errMsg}` }]);
       } else {
-        const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "Sorry, I couldn't generate a response.";
+        const aiText = data.text || "Sorry, I couldn't generate a response.";
         saveChat([...updated, { id: Date.now() + 1, sender: 'ai', text: aiText }]);
       }
     } catch (error) {
+      console.log("AI Chat error:", error);
       saveChat([...updated, { id: Date.now() + 1, sender: 'ai', text: "Network error. Please check your connection." }]);
     } finally {
       setIsTyping(false);
