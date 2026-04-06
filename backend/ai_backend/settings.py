@@ -132,5 +132,5 @@ import os
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-# OpenAI API Key (Server-side only — NEVER expose to frontend)
-OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+# Gemini API Key (Server-side only — NEVER expose to frontend)
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')

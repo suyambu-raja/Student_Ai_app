@@ -93,72 +93,35 @@ class AssignmentSubmissionViewSet(viewsets.ModelViewSet):
 @api_view(['POST'])
 def gemini_chat(request):
     """
-    Proxy endpoint for AI chat using OpenAI.
+    Proxy endpoint for Gemini AI chat.
     The API key stays server-side — frontend never sees it.
-    Endpoint name kept as gemini_chat for URL compatibility.
     """
-    api_key = settings.OPENAI_API_KEY
+    api_key = settings.GEMINI_API_KEY
 
     if not api_key:
         return Response(
-            {"error": "OpenAI API key not configured on server. Set OPENAI_API_KEY environment variable."},
+            {"error": "Gemini API key not configured on server. Set GEMINI_API_KEY environment variable."},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
     body = request.data
+    payload = {
+        "contents": body.get("contents", []),
+        "generationConfig": body.get("generationConfig", {"temperature": 0.7}),
+    }
 
-    # Build OpenAI messages from Gemini-style contents
-    messages = []
-
-    # Add system instruction if provided
     system_instruction = body.get("systemInstruction")
     if system_instruction:
-        messages.append({"role": "system", "content": system_instruction})
-
-    # Convert Gemini-style contents to OpenAI messages format
-    contents = body.get("contents", [])
-    for item in contents:
-        role = item.get("role", "user")
-        # Map Gemini roles to OpenAI roles
-        if role == "model":
-            role = "assistant"
-
-        # Extract text from parts
-        parts = item.get("parts", [])
-        text_parts = []
-        for part in parts:
-            if isinstance(part, dict) and "text" in part:
-                text_parts.append(part["text"])
-            elif isinstance(part, dict) and "inlineData" in part:
-                # OpenAI doesn't support inline binary data the same way;
-                # include a note about the attachment
-                text_parts.append("[File attachment included]")
-
-        if text_parts:
-            messages.append({"role": role, "content": "\n".join(text_parts)})
-
-    # Get generation config
-    gen_config = body.get("generationConfig", {})
-    temperature = gen_config.get("temperature", 0.7)
-
-    payload = {
-        "model": "gpt-4o-mini",
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": 2048,
-    }
+        payload["systemInstruction"] = {"parts": {"text": system_instruction}}
 
     payload_bytes = json.dumps(payload).encode('utf-8')
 
     try:
-        url = "https://api.openai.com/v1/chat/completions"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
         req = urllib.request.Request(
             url,
             data=payload_bytes,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}",
-            },
+            headers={"Content-Type": "application/json"},
             method="POST"
         )
         with urllib.request.urlopen(req, timeout=60) as resp:
@@ -166,7 +129,7 @@ def gemini_chat(request):
 
         ai_text = ""
         try:
-            ai_text = resp_data["choices"][0]["message"]["content"]
+            ai_text = resp_data["candidates"][0]["content"]["parts"][0]["text"]
         except (KeyError, IndexError):
             ai_text = "Sorry, I couldn't generate a response."
 
@@ -180,7 +143,7 @@ def gemini_chat(request):
         except (json.JSONDecodeError, AttributeError):
             error_msg = error_body
         return Response(
-            {"error": f"OpenAI API error: {error_msg}"},
+            {"error": f"Gemini API error: {error_msg}"},
             status=e.code
         )
     except Exception as e:
