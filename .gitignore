@@ -39,3 +39,9 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Python / Django Backend
+__pycache__/
+*.pyc
+db.sqlite3
+backend/ai_backend/env_config.py
